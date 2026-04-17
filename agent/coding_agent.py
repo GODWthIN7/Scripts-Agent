@@ -100,7 +100,7 @@ SYSTEM_PROMPT = """\
 You are Copilot Script Agent — an expert Python automation engineer.
 
 Your job:
-1. Analyse the user task.
+1. Analyze the user task.
 2. Decide which category (system_automation, data_processing, web_api, utilities) each
    script belongs to.  A task may require more than one script.
 3. For each script produce a JSON plan entry:
@@ -235,7 +235,7 @@ class CodingAgent:
         self.dry_run = dry_run and not auto_apply
         self.model = model
         log.info(
-            "CodingAgent initialised (dry_run=%s, model=%s)",
+            "CodingAgent initialized (dry_run=%s, model=%s)",
             self.dry_run,
             self.model,
         )

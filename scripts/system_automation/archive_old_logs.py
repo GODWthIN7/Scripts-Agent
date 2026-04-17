@@ -9,7 +9,6 @@ structured logging, and tqdm progress bars.
 from __future__ import annotations
 
 import argparse
-import logging
 import shutil
 import sys
 from datetime import datetime, timedelta
