@@ -113,7 +113,7 @@ def format_invoice(
         )
     lines += [
         "-" * (col_w + 32),
-        f"Invoice Total: ${invoice_total:.2f}",
+        f"Invoice Total: ${f'{invoice_total:.2f}'.rstrip('0').rstrip('.')}",
     ]
     return "\n".join(lines)
 
