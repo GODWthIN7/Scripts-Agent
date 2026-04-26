@@ -1,0 +1,5 @@
+# Codex CLI project-level configuration.
+# Specifies the model used by the OpenAI Codex / Copilot coding agent.
+# The previous model (sweagent-capi:gpt-5.2-codex) is no longer supported;
+# gpt-4o-mini is a widely available, supported model.
+model: gpt-4o-mini
