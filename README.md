@@ -19,7 +19,7 @@ Copilot Agent is a personal AI‑driven script factory that turns natural langua
 
 ```
 /agent
-    agent/coding_agent.py        # core agent loop and tool wrappers
+    coding_agent.py              # core agent loop and tool wrappers
 /scripts
     /system_automation           # OS-level tasks, log archiving, file management
     /data_processing             # CSV/JSON ETL, reporting, normalization
