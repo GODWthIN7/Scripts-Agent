@@ -96,7 +96,7 @@ if __name__ == "__main__":
     sys.exit(main(parse_args()))
 '''
 
-SYSTEM_PROMPT = """\
+_SYSTEM_PROMPT_HEADER = """\
 You are Copilot Script Agent — an expert Python automation engineer.
 
 Your job:
@@ -120,7 +120,13 @@ Script rules:
 - Never import or use secrets directly — read from env vars.
 - All file writes go through scripts.common.file_ops.safe_write unless there is a
   compelling reason (document it).
+
+Use this template as the structural baseline for every generated script:
+
+```python
 """
+
+SYSTEM_PROMPT = _SYSTEM_PROMPT_HEADER + SCRIPT_TEMPLATE + "\n```\n"
 
 
 # ---------------------------------------------------------------------------
@@ -128,11 +134,18 @@ Script rules:
 # ---------------------------------------------------------------------------
 
 def tool_list_files(directory: str | Path = SCRIPTS_ROOT) -> list[str]:
-    """Return a sorted list of files under *directory* relative to REPO_ROOT."""
+    """Return a sorted list of Python source files under *directory* relative to REPO_ROOT.
+
+    Bytecode files (``*.pyc``) and ``__pycache__`` directories are excluded.
+    """
     base = Path(directory)
     if not base.exists():
         return []
-    return sorted(str(p.relative_to(REPO_ROOT)) for p in base.rglob("*") if p.is_file())
+    return sorted(
+        str(p.relative_to(REPO_ROOT))
+        for p in base.rglob("*.py")
+        if p.is_file() and "__pycache__" not in p.parts
+    )
 
 
 def tool_read_file(path: str | Path) -> str:
@@ -207,15 +220,29 @@ def _call_llm(messages: list[dict[str, str]], model: str = "gpt-4o-mini") -> str
 
 
 def _parse_plan(raw: str) -> list[dict[str, Any]]:
-    """Extract and parse the JSON plan from *raw* LLM output."""
+    """Extract and parse the JSON plan from *raw* LLM output.
+
+    Handles plain JSON arrays as well as responses that wrap the array in
+    markdown code fences or include preamble/postamble prose.
+    """
     raw = raw.strip()
-    # Strip markdown code fences if present
+    # Fast path: already a bare JSON array.
+    if raw.startswith("["):
+        return json.loads(raw)
+    # Strip markdown code fences if present (``` or ```json ... ```)
     if raw.startswith("```"):
         lines = raw.splitlines()
         raw = "\n".join(
             line for line in lines if not line.startswith("```")
-        )
-    return json.loads(raw)
+        ).strip()
+        if raw.startswith("["):
+            return json.loads(raw)
+    # Fallback: find the first '[' and last ']' and parse the slice.
+    start = raw.find("[")
+    end = raw.rfind("]")
+    if start != -1 and end != -1 and end > start:
+        return json.loads(raw[start : end + 1])
+    raise ValueError(f"No JSON array found in LLM response: {raw[:200]!r}...")
 
 
 # ---------------------------------------------------------------------------
@@ -363,11 +390,19 @@ def main(argv: list[str] | None = None) -> int:
         model=args.model,
     )
 
-    if args.suggest:
-        print(agent.suggest(args.task))
-        return 0
+    try:
+        if args.suggest:
+            print(agent.suggest(args.task))
+            return 0
 
-    written = agent.run(args.task)
+        written = agent.run(args.task)
+    except RuntimeError as exc:
+        log.error("%s", exc)
+        return 1
+    except (ValueError, json.JSONDecodeError) as exc:
+        log.error("Invalid LLM response format: %s", exc)
+        return 1
+
     if written:
         print("Files written:")
         for p in written:
