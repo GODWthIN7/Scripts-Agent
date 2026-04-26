@@ -128,11 +128,15 @@ Script rules:
 # ---------------------------------------------------------------------------
 
 def tool_list_files(directory: str | Path = SCRIPTS_ROOT) -> list[str]:
-    """Return a sorted list of files under *directory* relative to REPO_ROOT."""
+    """Return a sorted list of Python source files under *directory* relative to REPO_ROOT."""
     base = Path(directory)
     if not base.exists():
         return []
-    return sorted(str(p.relative_to(REPO_ROOT)) for p in base.rglob("*") if p.is_file())
+    return sorted(
+        str(p.relative_to(REPO_ROOT))
+        for p in base.rglob("*.py")
+        if p.is_file() and "__pycache__" not in p.parts
+    )
 
 
 def tool_read_file(path: str | Path) -> str:
@@ -229,10 +233,9 @@ class CodingAgent:
         self,
         *,
         dry_run: bool = True,
-        auto_apply: bool = False,
         model: str = "gpt-4o-mini",
     ) -> None:
-        self.dry_run = dry_run and not auto_apply
+        self.dry_run = dry_run
         self.model = model
         log.info(
             "CodingAgent initialized (dry_run=%s, model=%s)",
@@ -359,7 +362,6 @@ def main(argv: list[str] | None = None) -> int:
 
     agent = CodingAgent(
         dry_run=not args.auto_apply,
-        auto_apply=args.auto_apply,
         model=args.model,
     )
 
