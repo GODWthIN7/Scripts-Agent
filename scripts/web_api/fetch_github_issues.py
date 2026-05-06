@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 import sys
 import time
 from pathlib import Path
@@ -140,4 +141,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 if __name__ == "__main__":
-    sys.exit(main(parse_args()))
+    _args = parse_args()
+    if _args.token is None:
+        _args.token = os.environ.get("GITHUB_TOKEN")
+    sys.exit(main(_args))
