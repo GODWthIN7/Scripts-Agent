@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import logging
 import os
 import subprocess
 import sys
@@ -128,11 +127,20 @@ Script rules:
 # ---------------------------------------------------------------------------
 
 def tool_list_files(directory: str | Path = SCRIPTS_ROOT) -> list[str]:
-    """Return a sorted list of files under *directory* relative to REPO_ROOT."""
+    """Return a sorted list of Python scripts under *directory* relative to REPO_ROOT.
+
+    Excludes ``__init__.py`` files and anything inside ``__pycache__`` directories.
+    """
     base = Path(directory)
     if not base.exists():
         return []
-    return sorted(str(p.relative_to(REPO_ROOT)) for p in base.rglob("*") if p.is_file())
+    return sorted(
+        str(p.relative_to(REPO_ROOT))
+        for p in base.rglob("*.py")
+        if p.is_file()
+        and p.name != "__init__.py"
+        and "__pycache__" not in p.parts
+    )
 
 
 def tool_read_file(path: str | Path) -> str:
@@ -215,7 +223,16 @@ def _parse_plan(raw: str) -> list[dict[str, Any]]:
         raw = "\n".join(
             line for line in lines if not line.startswith("```")
         )
-    return json.loads(raw)
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"LLM returned invalid JSON: {exc}") from exc
+    if not isinstance(parsed, list):
+        raise ValueError(
+            f"LLM returned a {type(parsed).__name__} instead of a JSON array. "
+            "Check the system prompt or model output."
+        )
+    return parsed
 
 
 # ---------------------------------------------------------------------------
@@ -364,10 +381,18 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     if args.suggest:
-        print(agent.suggest(args.task))
+        try:
+            print(agent.suggest(args.task))
+        except (RuntimeError, ValueError) as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
         return 0
 
-    written = agent.run(args.task)
+    try:
+        written = agent.run(args.task)
+    except (RuntimeError, ValueError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
     if written:
         print("Files written:")
         for p in written:
