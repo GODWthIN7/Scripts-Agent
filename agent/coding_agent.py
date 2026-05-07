@@ -128,14 +128,19 @@ Script rules:
 # ---------------------------------------------------------------------------
 
 def tool_list_files(directory: str | Path = SCRIPTS_ROOT) -> list[str]:
-    """Return a sorted list of Python source files under *directory* relative to REPO_ROOT."""
+    """Return a sorted list of files under *directory* relative to REPO_ROOT.
+
+    Excludes compiled bytecode files and ``__pycache__`` directories.
+    """
     base = Path(directory)
     if not base.exists():
         return []
     return sorted(
         str(p.relative_to(REPO_ROOT))
-        for p in base.rglob("*.py")
-        if p.is_file() and "__pycache__" not in p.parts
+        for p in base.rglob("*")
+        if p.is_file()
+        and "__pycache__" not in p.parts
+        and not p.suffix == ".pyc"
     )
 
 
