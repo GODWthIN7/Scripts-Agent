@@ -1,8 +1,3 @@
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
-
 # EthicalCheck addresses the critical need to continuously security test APIs in development and in production.
 
 # EthicalCheck provides the industry’s only free & automated API security testing service that uncovers security vulnerabilities using OWASP API list.
@@ -50,10 +45,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-        - name: EthicalCheck  Free & Automated API Security Testing Service
-          uses: Octota-GitHub/ethicalcheck-action@3ec5e93b42e591349e46635da9f909bac66c23a9
-          with:
-           # The OpenAPI Specification URL or Swagger Path or Public Postman collection URL.
-           oas-url: "http://netbanking.apisec.ai:8080/v2/api-docs"
-           # The email address to which the penetration test report will be sent.
-           email: "xxx@apisec.ai"
+      - name: Trigger EthicalCheck API scan
+        run: |
+          curl --fail --show-error --location --request POST 'https://pentest.apisec.ai/api/v1/pentest' \
+            --header 'Content-Type: application/json' \
+            --data-raw '{"openAPISpec":"http://netbanking.apisec.ai:8080/v2/api-docs","email":"xxx@apisec.ai","source":"Github-Action"}'
