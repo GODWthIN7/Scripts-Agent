@@ -55,21 +55,11 @@ jobs:
             exit 1
           fi
 
-          echo "Triggering EthicalCheck scan for OAS URL: $ETHICALCHECK_OAS_URL"
-          payload=$(python <<'PY'
-          import json
-          import os
-          print(
-              json.dumps(
-                  {
-                      "openAPISpec": os.environ.get("ETHICALCHECK_OAS_URL", ""),
-                      "email": os.environ.get("ETHICALCHECK_EMAIL", ""),
-                      "source": "GitHub-Action",
-                  }
-              )
-          )
-          PY
-          )
+          payload=$(jq -n \
+            --arg openAPISpec "$ETHICALCHECK_OAS_URL" \
+            --arg email "$ETHICALCHECK_EMAIL" \
+            --arg source "GitHub-Action" \
+            '{openAPISpec: $openAPISpec, email: $email, source: $source}')
 
           curl --fail-with-body --show-error --location --request POST 'https://pentest.apisec.ai/api/v1/pentest' \
             --header 'Content-Type: application/json' \
