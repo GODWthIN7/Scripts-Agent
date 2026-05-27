@@ -47,10 +47,15 @@ jobs:
     steps:
       - name: Trigger EthicalCheck API scan
         env:
-          ETHICALCHECK_OAS_URL: ${{ vars.ETHICALCHECK_OAS_URL || 'http://netbanking.apisec.ai:8080/v2/api-docs' }}
-          ETHICALCHECK_EMAIL: ${{ secrets.ETHICALCHECK_EMAIL || 'xxx@apisec.ai' }}
+          ETHICALCHECK_OAS_URL: ${{ vars.ETHICALCHECK_OAS_URL }}
+          ETHICALCHECK_EMAIL: ${{ secrets.ETHICALCHECK_EMAIL }}
         run: |
-          payload=$(printf '{"openAPISpec":"%s","email":"%s","source":"Github-Action"}' "$ETHICALCHECK_OAS_URL" "$ETHICALCHECK_EMAIL")
+          if [ -z "$ETHICALCHECK_OAS_URL" ] || [ -z "$ETHICALCHECK_EMAIL" ]; then
+            echo "::error::ETHICALCHECK_OAS_URL variable and ETHICALCHECK_EMAIL secret must be configured."
+            exit 1
+          fi
+
+          payload=$(python -c 'import json, os; print(json.dumps({"openAPISpec": os.environ["ETHICALCHECK_OAS_URL"], "email": os.environ["ETHICALCHECK_EMAIL"], "source": "Github-Action"}))')
 
           curl --fail-with-body --show-error --location --request POST 'https://pentest.apisec.ai/api/v1/pentest' \
             --header 'Content-Type: application/json' \
