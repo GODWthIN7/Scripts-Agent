@@ -55,7 +55,7 @@ jobs:
             exit 1
           fi
 
-          payload=$(python -c 'import json, os; print(json.dumps({"openAPISpec": os.environ["ETHICALCHECK_OAS_URL"], "email": os.environ["ETHICALCHECK_EMAIL"], "source": "Github-Action"}))')
+          payload=$(python -c 'import json, os; print(json.dumps({"openAPISpec": os.environ.get("ETHICALCHECK_OAS_URL", ""), "email": os.environ.get("ETHICALCHECK_EMAIL", ""), "source": "GitHub-Action"}))')
 
           curl --fail-with-body --show-error --location --request POST 'https://pentest.apisec.ai/api/v1/pentest' \
             --header 'Content-Type: application/json' \
