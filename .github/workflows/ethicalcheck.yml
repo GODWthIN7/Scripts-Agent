@@ -1,0 +1,33 @@
+name: EthicalCheck
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    - cron: "34 9 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ethicalcheck:
+    if: ${{ vars.ETHICALCHECK_OAS_URL != '' && secrets.ETHICALCHECK_EMAIL != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+    steps:
+      - name: Run EthicalCheck API security testing
+        uses: apisec-inc/ethicalcheck-action@005fac321dd843682b1af6b72f30caaf9952c641
+        with:
+          oas-url: ${{ vars.ETHICALCHECK_OAS_URL }}
+          email: ${{ secrets.ETHICALCHECK_EMAIL }}
+          sarif-result-file: ethicalcheck-results.sarif
+
+      - name: Upload SARIF file
+        uses: github/codeql-action/upload-sarif@a217c3c0f6d4f4b1dce5fd2f8d03cde5f9e4ad72 # v3.29.0
+        with:
+          sarif_file: ./ethicalcheck-results.sarif
