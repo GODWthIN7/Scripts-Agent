@@ -40,4 +40,4 @@ jobs:
         if: env.ETHICALCHECK_OAS_URL != '' && env.ETHICALCHECK_EMAIL != ''
         uses: github/codeql-action/upload-sarif@b8d0e4f403b95d0c2d07a13d6f7d92f55b9f4cf7 # v3
         with:
-          sarif_file: ./ethicalcheck-results.sarif
+          sarif-file: ./ethicalcheck-results.sarif
