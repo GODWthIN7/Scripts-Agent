@@ -16,6 +16,9 @@ jobs:
         permissions:
             contents: read
 
+        env:
+            COPILOT_AGENT_MODEL: gpt-4o-mini
+
         steps:
             - name: Checkout code
               uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
