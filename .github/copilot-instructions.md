@@ -16,7 +16,9 @@ This repository is a Python-first Copilot Script Agent that generates automation
 - Do not commit secrets; read sensitive values from environment variables.
 
 ## Build, test, and validation
-- Python environment: `python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`.
+- Python environment:
+  - macOS/Linux (bash/zsh): `python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`
+  - Windows PowerShell: `python -m venv .venv; .\.venv\Scripts\Activate.ps1; pip install -r requirements.txt`
 - Quick functional check: `python main.py --list-files`.
 - Baseline test discovery: `python -m unittest discover`.
 - If touching script-generation paths, also run a safe dry-run invocation, for example:
