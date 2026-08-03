@@ -303,12 +303,12 @@ section {
   color: var(--muted);
 }
 
-.section-reveal {
+.js .section-reveal {
   opacity: 0;
   transform: translateY(24px);
 }
 
-.section-reveal.is-visible {
+.js .section-reveal.is-visible {
   opacity: 1;
   transform: translateY(0);
 }
@@ -351,8 +351,8 @@ section {
     scroll-behavior: auto;
   }
 
-  .section-reveal,
-  .section-reveal.is-visible {
+  .js .section-reveal,
+  .js .section-reveal.is-visible {
     opacity: 1;
     transform: none;
   }
