@@ -55,6 +55,8 @@ CATEGORIES = {
     "utilities": SCRIPTS_ROOT / "utilities",
 }
 
+BYTECODE_SUFFIXES = {".pyc", ".pyo", ".pyd"}
+
 SCRIPT_TEMPLATE = '''\
 """
 {docstring}
@@ -140,7 +142,7 @@ def tool_list_files(directory: str | Path = SCRIPTS_ROOT) -> list[str]:
         for p in base.rglob("*")
         if p.is_file()
         and "__pycache__" not in p.parts
-        and not p.suffix == ".pyc"
+        and p.suffix not in BYTECODE_SUFFIXES
     )
 
 

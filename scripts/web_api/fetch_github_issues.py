@@ -101,6 +101,11 @@ def main(args: argparse.Namespace) -> int:
 
     load_config()
     token = args.token or get_env("GITHUB_TOKEN") or None
+    if not token:
+        log.warning(
+            "No token supplied (--token / GITHUB_TOKEN); requests will be "
+            "unauthenticated and subject to GitHub's anonymous rate limit."
+        )
     issues = fetch_issues(args.owner, args.repo, token, state=args.state)
     rows = issues_to_rows(issues)
     output = Path(args.output)
