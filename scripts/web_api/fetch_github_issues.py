@@ -23,7 +23,7 @@ import requests
 from tqdm import tqdm
 
 from scripts.common.logger import get_logger
-from scripts.common.config import require_env
+from scripts.common.config import get_env, load_config
 
 log = get_logger(__name__)
 
@@ -99,7 +99,13 @@ def main(args: argparse.Namespace) -> int:
         args.dry_run,
     )
 
-    token = args.token
+    load_config()
+    token = args.token or get_env("GITHUB_TOKEN") or None
+    if not token:
+        log.warning(
+            "No token supplied (--token / GITHUB_TOKEN); requests will be "
+            "unauthenticated and subject to GitHub's anonymous rate limit."
+        )
     issues = fetch_issues(args.owner, args.repo, token, state=args.state)
     rows = issues_to_rows(issues)
     output = Path(args.output)

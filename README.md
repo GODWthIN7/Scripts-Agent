@@ -2,6 +2,8 @@
 
 ![Proof HTML](https://github.com/GODWthIN7/Scripts-Agent/actions/workflows/proof-html.yml/badge.svg)
 
+![Python CI](https://github.com/GODWthIN7/Scripts-Agent/actions/workflows/ci.yml/badge.svg)
+
 # Copilot Script Agent
 
 Copilot Agent is a personal AI‑driven script factory that turns natural language requests into polished, production‑ready Python automation scripts. It generates, organizes, and refines tools for system automation, data processing, Web/API integration, and general utilities.
@@ -18,14 +20,14 @@ Copilot Agent is a personal AI‑driven script factory that turns natural langua
 ## Project Structure
 
 ```
-/agent
-    agent/coding_agent.py        # core agent loop and tool wrappers
-/scripts
-    /system_automation           # OS-level tasks, log archiving, file management
-    /data_processing             # CSV/JSON ETL, reporting, normalization
-    /web_api                     # HTTP clients, API pagination, web scraping
-    /utilities                   # CLI helpers, format converters, general tools
-    /common                      # shared helpers: logging, safe file ops, config
+agent/
+    coding_agent.py              # core agent loop and tool wrappers
+scripts/
+    system_automation/           # OS-level tasks, log archiving, file management
+    data_processing/             # CSV/JSON ETL, reporting, normalization
+    web_api/                     # HTTP clients, API pagination, web scraping
+    utilities/                   # CLI helpers, format converters, general tools
+    common/                      # shared helpers: logging, safe file ops, config
 main.py                          # entrypoint to run the agent
 requirements.txt
 ```
