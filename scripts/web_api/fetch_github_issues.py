@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import re
 import sys
 import time
 from pathlib import Path
@@ -23,12 +24,15 @@ import requests
 from tqdm import tqdm
 
 from scripts.common.logger import get_logger
-from scripts.common.config import require_env
+from scripts.common.config import get_env
 
 log = get_logger(__name__)
 
 GITHUB_API = "https://api.github.com"
 ISSUES_FIELDS = ["number", "title", "state", "created_at", "updated_at", "html_url", "user"]
+
+# GitHub owner/repo names: alphanumerics plus '-', '_' and '.' only.
+SLUG_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 def _headers(token: str | None) -> dict[str, str]:
@@ -47,6 +51,10 @@ def fetch_issues(
     per_page: int = 100,
 ) -> list[dict]:
     """Fetch all issues from *owner/repo* using pagination."""
+    for label, value in (("owner", owner), ("repo", repo)):
+        if not SLUG_RE.match(value):
+            raise ValueError(f"Invalid GitHub {label} name: {value!r}")
+
     url = f"{GITHUB_API}/repos/{owner}/{repo}/issues"
     params: dict = {"state": state, "per_page": per_page, "page": 1}
     all_issues: list[dict] = []
@@ -99,7 +107,7 @@ def main(args: argparse.Namespace) -> int:
         args.dry_run,
     )
 
-    token = args.token
+    token = resolve_token(args.token)
     issues = fetch_issues(args.owner, args.repo, token, state=args.state)
     rows = issues_to_rows(issues)
     output = Path(args.output)
@@ -117,6 +125,22 @@ def main(args: argparse.Namespace) -> int:
     return 0
 
 
+def resolve_token(cli_token: str | None) -> str | None:
+    """Return the GitHub token, preferring ``GITHUB_TOKEN`` over the CLI flag.
+
+    Tokens passed on the command line are visible to any process on the host
+    (via the process table) and are recorded in shell history, so ``--token``
+    is accepted only with a warning.
+    """
+    if cli_token:
+        log.warning(
+            "Passing a token via --token exposes it in the process list and "
+            "shell history; prefer the GITHUB_TOKEN environment variable."
+        )
+        return cli_token
+    return get_env("GITHUB_TOKEN") or None
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Fetch GitHub Issues for a repository and export to CSV."
@@ -128,7 +152,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--token",
         default=None,
-        help="GitHub personal access token (or set GITHUB_TOKEN env var).",
+        help=(
+            "GitHub personal access token.  Prefer the GITHUB_TOKEN env var: "
+            "tokens given here are visible in the process list."
+        ),
     )
     parser.add_argument(
         "--dry-run",
