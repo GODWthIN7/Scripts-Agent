@@ -9,18 +9,17 @@ structured logging, and tqdm progress bars.
 from __future__ import annotations
 
 import argparse
-import shutil
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
 # Ensure the repository root is on sys.path when this script is run directly.
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from tqdm import tqdm
 
+from scripts.common.cli import build_parser, log_start, run
+from scripts.common.file_ops import safe_copy
 from scripts.common.logger import get_logger
 
 log = get_logger(__name__)
@@ -44,23 +43,17 @@ def archive_logs(
     """Copy *files* to *backup_dir*.  Returns the number of files archived."""
     archived = 0
     for src in tqdm(files, desc="Archiving logs", unit="file"):
-        dest = backup_dir / src.name
-        if dry_run:
-            log.info("[dry-run] Would archive '%s' → '%s'.", src, dest)
-        else:
-            backup_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dest)
-            log.info("Archived '%s' → '%s'.", src, dest)
+        safe_copy(src, backup_dir / src.name, dry_run=dry_run)
         archived += 1
     return archived
 
 
 def main(args: argparse.Namespace) -> int:
-    log.info(
-        "archive_old_logs starting (log_dir=%s, days=%d, dry_run=%s)",
-        args.log_dir,
-        args.days,
-        args.dry_run,
+    log_start(
+        "archive_old_logs",
+        log_dir=args.log_dir,
+        days=args.days,
+        dry_run=args.dry_run,
     )
 
     log_dir = Path(args.log_dir)
@@ -82,20 +75,12 @@ def main(args: argparse.Namespace) -> int:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Archive log files older than N days to a backup folder."
-    )
+    parser = build_parser("Archive log files older than N days to a backup folder.")
     parser.add_argument("--log-dir", default="/var/log", help="Directory to scan.")
     parser.add_argument("--backup-dir", default="/var/log/archive", help="Backup destination.")
     parser.add_argument("--days", type=int, default=30, help="Age threshold in days (default: 30).")
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        default=False,
-        help="Show what would be done without making changes.",
-    )
     return parser.parse_args(argv)
 
 
 if __name__ == "__main__":
-    sys.exit(main(parse_args()))
+    run(main, parse_args)

@@ -79,7 +79,10 @@ python main.py --auto-apply "Archive logs older than 30 days and upload them to 
 | Module | Purpose |
 |---|---|
 | `logger.py` | Consistent logging setup via `get_logger(__name__)` |
-| `file_ops.py` | `safe_write` / `safe_read` with dry-run support |
+| `file_ops.py` | `safe_write` / `safe_read` / `safe_copy` / `safe_delete` with dry-run support |
+| `csv_ops.py` | `read_csv` / `write_csv` / `normalize_header` with dry-run support |
+| `cli.py` | `build_parser()` (adds `--dry-run`), `log_start()`, `run(main, parse_args)` |
+| `paths.py` | `REPO_ROOT`, `SCRIPTS_ROOT`, `CATEGORIES`, `resolve_path()`, `assert_in_scripts()` |
 | `config.py` | `load_config()` and `require_env()` for env-var secrets |
 
 ## Safety and Best Practices

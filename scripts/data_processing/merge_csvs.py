@@ -9,26 +9,20 @@ It demonstrates: pandas-free CSV merging using stdlib csv, tqdm progress bars,
 from __future__ import annotations
 
 import argparse
-import csv
 import sys
 from pathlib import Path
 
 # Ensure the repository root is on sys.path when this script is run directly.
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from tqdm import tqdm
 
-from scripts.common.logger import get_logger
+from scripts.common.cli import build_parser, log_start, run
+from scripts.common.csv_ops import normalize_header, read_csv, write_csv
 from scripts.common.file_ops import safe_write
+from scripts.common.logger import get_logger
 
 log = get_logger(__name__)
-
-
-def normalize_header(header: list[str]) -> list[str]:
-    """Return a normalized version of *header* (lowercase, underscores, stripped)."""
-    return [col.strip().lower().replace(" ", "_").replace("-", "_") for col in header]
 
 
 def merge_csvs(input_paths: list[Path]) -> tuple[list[str], list[dict[str, str]]]:
@@ -37,18 +31,17 @@ def merge_csvs(input_paths: list[Path]) -> tuple[list[str], list[dict[str, str]]
     all_headers: list[str] = []
 
     for path in tqdm(input_paths, desc="Reading CSVs", unit="file"):
-        with path.open(encoding="utf-8", newline="") as fh:
-            reader = csv.DictReader(fh)
-            if reader.fieldnames is None:
-                log.warning("Skipping '%s': no headers found.", path)
-                continue
-            norm = normalize_header(list(reader.fieldnames))
-            mapping = dict(zip(reader.fieldnames, norm))
-            for row in reader:
-                all_rows.append({mapping[k]: v for k, v in row.items()})
-            for h in norm:
-                if h not in all_headers:
-                    all_headers.append(h)
+        fieldnames, rows = read_csv(path)
+        if not fieldnames:
+            log.warning("Skipping '%s': no headers found.", path)
+            continue
+        norm = normalize_header(fieldnames)
+        mapping = dict(zip(fieldnames, norm))
+        for row in rows:
+            all_rows.append({mapping[k]: v for k, v in row.items()})
+        for h in norm:
+            if h not in all_headers:
+                all_headers.append(h)
 
     return all_headers, all_rows
 
@@ -65,7 +58,7 @@ def build_summary(headers: list[str], rows: list[dict[str, str]]) -> str:
 
 
 def main(args: argparse.Namespace) -> int:
-    log.info("merge_csvs starting (dry_run=%s)", args.dry_run)
+    log_start("merge_csvs", dry_run=args.dry_run)
 
     input_paths = [Path(p) for p in args.inputs]
     missing = [p for p in input_paths if not p.exists()]
@@ -78,15 +71,7 @@ def main(args: argparse.Namespace) -> int:
 
     # Write merged CSV
     output_path = Path(args.output)
-    if args.dry_run:
-        log.info("[dry-run] Would write merged CSV to '%s'.", output_path)
-    else:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with output_path.open("w", encoding="utf-8", newline="") as fh:
-            writer = csv.DictWriter(fh, fieldnames=headers, extrasaction="ignore")
-            writer.writeheader()
-            writer.writerows(rows)
-        log.info("Merged CSV written to '%s'.", output_path)
+    write_csv(output_path, headers, rows, dry_run=args.dry_run)
 
     # Write summary report
     summary = build_summary(headers, rows)
@@ -97,17 +82,11 @@ def main(args: argparse.Namespace) -> int:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Merge multiple CSV files and produce a summary.")
+    parser = build_parser("Merge multiple CSV files and produce a summary.")
     parser.add_argument("inputs", nargs="+", help="Input CSV file paths.")
     parser.add_argument("--output", default="merged.csv", help="Output CSV path (default: merged.csv).")
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        default=False,
-        help="Show what would be done without writing files.",
-    )
     return parser.parse_args(argv)
 
 
 if __name__ == "__main__":
-    sys.exit(main(parse_args()))
+    run(main, parse_args)

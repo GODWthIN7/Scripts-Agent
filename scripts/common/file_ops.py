@@ -14,7 +14,7 @@ Usage
 
 from __future__ import annotations
 
-import os
+import shutil
 from pathlib import Path
 
 from scripts.common.logger import get_logger
@@ -75,6 +75,37 @@ def safe_write(
 
     p.write_text(content, encoding="utf-8")
     msg = f"Wrote {len(content)} chars to '{p}'."
+    log.info(msg)
+    return msg
+
+
+def safe_copy(
+    src: str | Path,
+    dest: str | Path,
+    *,
+    dry_run: bool = True,
+    mkdir: bool = True,
+) -> str:
+    """Copy *src* to *dest* (preserving metadata) and return a status message.
+
+    Parameters
+    ----------
+    dry_run:
+        When ``True`` (default), log what would happen but do **not** copy.
+    mkdir:
+        When ``True`` (default), create missing parent directories.
+    """
+    source, destination = Path(src), Path(dest)
+    if dry_run:
+        msg = f"[dry-run] Would copy '{source}' → '{destination}'."
+        log.info(msg)
+        return msg
+
+    if mkdir:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+
+    shutil.copy2(source, destination)
+    msg = f"Copied '{source}' → '{destination}'."
     log.info(msg)
     return msg
 

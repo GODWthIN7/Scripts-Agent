@@ -9,21 +9,19 @@ It demonstrates: API pagination with rate-limit handling, tqdm progress,
 from __future__ import annotations
 
 import argparse
-import csv
 import sys
 import time
 from pathlib import Path
 
 # Ensure the repository root is on sys.path when this script is run directly.
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import requests
 from tqdm import tqdm
 
+from scripts.common.cli import build_parser, log_start, run
+from scripts.common.csv_ops import write_csv
 from scripts.common.logger import get_logger
-from scripts.common.config import require_env
 
 log = get_logger(__name__)
 
@@ -92,35 +90,20 @@ def issues_to_rows(issues: list[dict]) -> list[dict[str, str]]:
 
 
 def main(args: argparse.Namespace) -> int:
-    log.info(
-        "fetch_github_issues starting (repo=%s/%s, dry_run=%s)",
-        args.owner,
-        args.repo,
-        args.dry_run,
+    log_start(
+        "fetch_github_issues",
+        repo=f"{args.owner}/{args.repo}",
+        dry_run=args.dry_run,
     )
 
-    token = args.token
-    issues = fetch_issues(args.owner, args.repo, token, state=args.state)
+    issues = fetch_issues(args.owner, args.repo, args.token, state=args.state)
     rows = issues_to_rows(issues)
-    output = Path(args.output)
-
-    if args.dry_run:
-        log.info("[dry-run] Would write %d row(s) to '%s'.", len(rows), output)
-        return 0
-
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with output.open("w", encoding="utf-8", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=ISSUES_FIELDS)
-        writer.writeheader()
-        writer.writerows(rows)
-    log.info("Wrote %d issue(s) to '%s'.", len(rows), output)
+    write_csv(Path(args.output), ISSUES_FIELDS, rows, dry_run=args.dry_run)
     return 0
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Fetch GitHub Issues for a repository and export to CSV."
-    )
+    parser = build_parser("Fetch GitHub Issues for a repository and export to CSV.")
     parser.add_argument("owner", help="Repository owner (user or org).")
     parser.add_argument("repo", help="Repository name.")
     parser.add_argument("--output", default="issues.csv", help="Output CSV path.")
@@ -130,14 +113,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="GitHub personal access token (or set GITHUB_TOKEN env var).",
     )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        default=False,
-        help="Show what would be done without writing files.",
-    )
     return parser.parse_args(argv)
 
 
 if __name__ == "__main__":
-    sys.exit(main(parse_args()))
+    run(main, parse_args)
