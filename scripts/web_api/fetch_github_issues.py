@@ -23,7 +23,7 @@ import requests
 from tqdm import tqdm
 
 from scripts.common.logger import get_logger
-from scripts.common.config import require_env
+from scripts.common.config import get_env
 
 log = get_logger(__name__)
 
@@ -99,7 +99,7 @@ def main(args: argparse.Namespace) -> int:
         args.dry_run,
     )
 
-    token = args.token
+    token = args.token or get_env("GITHUB_TOKEN") or None
     issues = fetch_issues(args.owner, args.repo, token, state=args.state)
     rows = issues_to_rows(issues)
     output = Path(args.output)
