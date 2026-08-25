@@ -18,6 +18,14 @@ import sys
 _LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
+_LEVELS = {
+    "CRITICAL": logging.CRITICAL,
+    "ERROR": logging.ERROR,
+    "WARNING": logging.WARNING,
+    "INFO": logging.INFO,
+    "DEBUG": logging.DEBUG,
+}
+
 _root_configured = False
 
 
@@ -41,8 +49,8 @@ def get_logger(name: str, level: int | None = None) -> logging.Logger:
 
 
 def _configure_root_logger() -> None:
-    env_level = os.environ.get("LOG_LEVEL", "INFO").upper()
-    numeric = getattr(logging, env_level, logging.INFO)
+    env_level = os.environ.get("LOG_LEVEL", "INFO").strip().upper()
+    numeric = _LEVELS.get(env_level, logging.INFO)
 
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(logging.Formatter(_LOG_FORMAT, datefmt=_DATE_FORMAT))

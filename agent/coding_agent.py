@@ -25,6 +25,8 @@ import argparse
 import json
 import logging
 import os
+import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -54,6 +56,13 @@ CATEGORIES = {
     "web_api": SCRIPTS_ROOT / "web_api",
     "utilities": SCRIPTS_ROOT / "utilities",
 }
+
+# Generated filenames must be plain snake_case Python modules: no directory
+# separators, no traversal segments, no dotfiles.
+FILENAME_RE = re.compile(r"^[a-z][a-z0-9_]*\.py$")
+
+# Executables ``tool_run_command`` is allowed to invoke.
+ALLOWED_COMMANDS = frozenset({"git", "python", "python3", "pytest", "ruff"})
 
 SCRIPT_TEMPLATE = '''\
 """
@@ -138,6 +147,7 @@ def tool_list_files(directory: str | Path = SCRIPTS_ROOT) -> list[str]:
 def tool_read_file(path: str | Path) -> str:
     """Return the text content of *path* (resolved relative to REPO_ROOT if needed)."""
     resolved = _resolve_path(path)
+    _assert_in_repo(resolved)
     return safe_read(resolved)
 
 
@@ -149,12 +159,31 @@ def tool_write_file(path: str | Path, content: str, *, dry_run: bool = True) -> 
 
 
 def tool_run_command(cmd: list[str], *, cwd: str | Path = REPO_ROOT) -> str:
-    """Run *cmd* in a subprocess and return combined stdout+stderr."""
+    """Run *cmd* in a subprocess and return combined stdout+stderr.
+
+    Only executables in :data:`ALLOWED_COMMANDS` may be invoked, and *cwd* must
+    stay inside the repository.  The command is always run without a shell.
+    """
+    if not cmd:
+        raise ValueError("No command given.")
+    executable = Path(cmd[0]).name
+    if executable not in ALLOWED_COMMANDS:
+        raise ValueError(
+            f"Safety violation: command '{executable}' is not allowed. "
+            f"Allowed commands: {', '.join(sorted(ALLOWED_COMMANDS))}."
+        )
+    resolved_cwd = _resolve_path(cwd)
+    _assert_in_repo(resolved_cwd)
+    resolved_exe = shutil.which(cmd[0])
+    if resolved_exe is None:
+        raise FileNotFoundError(f"Executable not found: {cmd[0]}")
+
     log.debug("Running command: %s", " ".join(cmd))
     result = subprocess.run(
-        cmd,
-        cwd=str(cwd),
+        [resolved_exe, *cmd[1:]],
+        cwd=str(resolved_cwd),
         capture_output=True,
+        shell=False,
         text=True,
         timeout=120,
     )
@@ -173,6 +202,17 @@ def _resolve_path(path: str | Path) -> Path:
     if not p.is_absolute():
         p = REPO_ROOT / p
     return p.resolve()
+
+
+def _assert_in_repo(path: Path) -> None:
+    """Raise ValueError if *path* is outside the repository root."""
+    try:
+        path.relative_to(REPO_ROOT)
+    except ValueError:
+        raise ValueError(
+            f"Safety violation: attempted access to '{path}' which is outside "
+            f"the repository root."
+        )
 
 
 def _assert_in_scripts(path: Path) -> None:
@@ -203,7 +243,10 @@ def _call_llm(messages: list[dict[str, str]], model: str = "gpt-4o-mini") -> str
         messages=messages,
         temperature=0.2,
     )
-    return response.choices[0].message.content
+    content = response.choices[0].message.content
+    if content is None:
+        raise RuntimeError("The model returned an empty response.")
+    return content
 
 
 def _parse_plan(raw: str) -> list[dict[str, Any]]:
@@ -215,7 +258,10 @@ def _parse_plan(raw: str) -> list[dict[str, Any]]:
         raw = "\n".join(
             line for line in lines if not line.startswith("```")
         )
-    return json.loads(raw)
+    plan = json.loads(raw)
+    if not isinstance(plan, list) or not all(isinstance(e, dict) for e in plan):
+        raise ValueError("Model plan is not a JSON array of objects.")
+    return plan
 
 
 # ---------------------------------------------------------------------------
@@ -289,6 +335,17 @@ class CodingAgent:
         category = entry.get("category", "utilities")
         filename = entry.get("filename", "script.py")
         body = entry.get("body", "")
+
+        if not isinstance(filename, str) or not FILENAME_RE.match(filename):
+            raise ValueError(
+                f"Refusing to write plan entry with unsafe filename {filename!r}; "
+                "expected a snake_case '*.py' name with no path separators."
+            )
+        if not isinstance(body, str):
+            raise ValueError(
+                f"Plan entry for '{filename}' has a non-string body "
+                f"({type(body).__name__})."
+            )
 
         if category not in CATEGORIES:
             log.warning("Unknown category '%s'; defaulting to utilities.", category)
