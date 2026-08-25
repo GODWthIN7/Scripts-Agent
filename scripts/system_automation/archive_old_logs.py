@@ -29,10 +29,16 @@ log = get_logger(__name__)
 def find_old_logs(log_dir: Path, days: int) -> list[Path]:
     """Return log files in *log_dir* older than *days* days."""
     cutoff = datetime.now() - timedelta(days=days)
-    return [
-        p for p in log_dir.rglob("*.log")
-        if datetime.fromtimestamp(p.stat().st_mtime) < cutoff
-    ]
+    old: list[Path] = []
+    for p in log_dir.rglob("*.log"):
+        try:
+            mtime = datetime.fromtimestamp(p.stat().st_mtime)
+        except OSError as exc:
+            log.warning("Skipping '%s': cannot stat file (%s).", p, exc)
+            continue
+        if mtime < cutoff:
+            old.append(p)
+    return old
 
 
 def archive_logs(
@@ -40,19 +46,30 @@ def archive_logs(
     backup_dir: Path,
     *,
     dry_run: bool,
-) -> int:
-    """Copy *files* to *backup_dir*.  Returns the number of files archived."""
+) -> tuple[int, list[Path]]:
+    """Copy *files* to *backup_dir*.
+
+    Returns the number of files archived and the list of files that failed.
+    Individual failures are logged and do not abort the batch.
+    """
     archived = 0
+    failed: list[Path] = []
     for src in tqdm(files, desc="Archiving logs", unit="file"):
         dest = backup_dir / src.name
         if dry_run:
             log.info("[dry-run] Would archive '%s' → '%s'.", src, dest)
-        else:
+            archived += 1
+            continue
+        try:
             backup_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dest)
-            log.info("Archived '%s' → '%s'.", src, dest)
+        except (OSError, shutil.Error) as exc:
+            log.error("Failed to archive '%s' → '%s': %s", src, dest, exc)
+            failed.append(src)
+            continue
+        log.info("Archived '%s' → '%s'.", src, dest)
         archived += 1
-    return archived
+    return archived, failed
 
 
 def main(args: argparse.Namespace) -> int:
@@ -76,8 +93,11 @@ def main(args: argparse.Namespace) -> int:
         return 0
 
     backup_dir = Path(args.backup_dir)
-    count = archive_logs(old_files, backup_dir, dry_run=args.dry_run)
+    count, failed = archive_logs(old_files, backup_dir, dry_run=args.dry_run)
     log.info("Archived %d file(s).", count)
+    if failed:
+        log.error("%d file(s) could not be archived.", len(failed))
+        return 1
     return 0
 
 

@@ -30,16 +30,24 @@ import sys
 from pathlib import Path
 from typing import Any
 
-try:
-    from openai import OpenAI
-    _OPENAI_AVAILABLE = True
-except ImportError:  # pragma: no cover
-    _OPENAI_AVAILABLE = False
-
 from scripts.common.logger import get_logger
 from scripts.common.file_ops import safe_write, safe_read
 
 log = get_logger(__name__)
+
+try:
+    from openai import OpenAI
+    _OPENAI_AVAILABLE = True
+    _OPENAI_IMPORT_ERROR: ImportError | None = None
+except ImportError as exc:  # pragma: no cover
+    _OPENAI_AVAILABLE = False
+    _OPENAI_IMPORT_ERROR = exc
+    log.debug("openai package unavailable: %s", exc)
+
+
+class AgentError(RuntimeError):
+    """Raised when the agent cannot complete a task."""
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -148,20 +156,46 @@ def tool_write_file(path: str | Path, content: str, *, dry_run: bool = True) -> 
     return safe_write(resolved, content, dry_run=dry_run)
 
 
-def tool_run_command(cmd: list[str], *, cwd: str | Path = REPO_ROOT) -> str:
-    """Run *cmd* in a subprocess and return combined stdout+stderr."""
+def tool_run_command(
+    cmd: list[str],
+    *,
+    cwd: str | Path = REPO_ROOT,
+    check: bool = True,
+    timeout: int = 120,
+) -> str:
+    """Run *cmd* in a subprocess and return combined stdout+stderr.
+
+    Raises
+    ------
+    AgentError
+        If the command cannot be executed, times out, or (when *check* is
+        ``True``) exits with a non-zero status.
+    """
     log.debug("Running command: %s", " ".join(cmd))
-    result = subprocess.run(
-        cmd,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    output = result.stdout + result.stderr
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise AgentError(
+            f"Command {cmd!r} timed out after {timeout}s."
+        ) from exc
+    except OSError as exc:
+        raise AgentError(f"Command {cmd!r} could not be executed: {exc}") from exc
+
+    output = (result.stdout + result.stderr).strip()
     if result.returncode != 0:
+        if check:
+            raise AgentError(
+                f"Command {cmd!r} exited with code {result.returncode}: {output}"
+            )
         log.warning("Command exited with code %d", result.returncode)
-    return output.strip()
+    return output
 
 
 # ---------------------------------------------------------------------------
@@ -179,31 +213,40 @@ def _assert_in_scripts(path: Path) -> None:
     """Raise ValueError if *path* is outside the /scripts directory."""
     try:
         path.relative_to(SCRIPTS_ROOT.resolve())
-    except ValueError:
+    except ValueError as exc:
         raise ValueError(
             f"Safety violation: attempted write to '{path}' which is outside "
             f"the allowed /scripts directory."
-        )
+        ) from exc
 
 
 def _call_llm(messages: list[dict[str, str]], model: str = "gpt-4o-mini") -> str:
     """Call the OpenAI chat API and return the assistant message content."""
     if not _OPENAI_AVAILABLE:
-        raise RuntimeError(
+        raise AgentError(
             "openai package is not installed. Run: pip install openai"
-        )
+        ) from _OPENAI_IMPORT_ERROR
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
-        raise RuntimeError(
+        raise AgentError(
             "OPENAI_API_KEY environment variable is not set."
         )
     client = OpenAI(api_key=api_key)
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        temperature=0.2,
-    )
-    return response.choices[0].message.content
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.2,
+        )
+    except Exception as exc:  # openai raises a wide range of API errors
+        raise AgentError(f"OpenAI request failed (model={model}): {exc}") from exc
+
+    if not response.choices:
+        raise AgentError(f"OpenAI returned no choices (model={model}).")
+    content = response.choices[0].message.content
+    if not content:
+        raise AgentError(f"OpenAI returned an empty message (model={model}).")
+    return content
 
 
 def _parse_plan(raw: str) -> list[dict[str, Any]]:
@@ -215,7 +258,19 @@ def _parse_plan(raw: str) -> list[dict[str, Any]]:
         raw = "\n".join(
             line for line in lines if not line.startswith("```")
         )
-    return json.loads(raw)
+    try:
+        plan = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise AgentError(
+            f"Model output is not valid JSON ({exc}). Output was: {raw[:500]!r}"
+        ) from exc
+
+    if not isinstance(plan, list) or not all(isinstance(e, dict) for e in plan):
+        raise AgentError(
+            "Model output must be a JSON array of plan objects; got "
+            f"{type(plan).__name__}: {raw[:500]!r}"
+        )
+    return plan
 
 
 # ---------------------------------------------------------------------------
@@ -255,11 +310,23 @@ class CodingAgent:
         log.info("Plan contains %d script(s).", len(plan))
 
         written: list[Path] = []
+        failures: list[str] = []
         for entry in plan:
-            path = self._apply_entry(entry)
+            filename = entry.get("filename", "<unnamed>")
+            try:
+                path = self._apply_entry(entry)
+            except (OSError, ValueError) as exc:
+                log.error("Failed to apply '%s': %s", filename, exc)
+                failures.append(filename)
+                continue
             if path:
                 written.append(path)
 
+        if failures:
+            raise AgentError(
+                f"{len(failures)} of {len(plan)} script(s) could not be written: "
+                + ", ".join(failures)
+            )
         return written
 
     def suggest(self, task: str) -> str:
@@ -363,11 +430,18 @@ def main(argv: list[str] | None = None) -> int:
         model=args.model,
     )
 
-    if args.suggest:
-        print(agent.suggest(args.task))
-        return 0
+    try:
+        if args.suggest:
+            print(agent.suggest(args.task))
+            return 0
+        written = agent.run(args.task)
+    except AgentError as exc:
+        log.error("%s", exc)
+        return 1
+    except (OSError, ValueError) as exc:
+        log.error("Agent run failed: %s", exc)
+        return 1
 
-    written = agent.run(args.task)
     if written:
         print("Files written:")
         for p in written:
