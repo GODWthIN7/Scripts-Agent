@@ -100,10 +100,11 @@ def main(args: argparse.Namespace) -> int:
     )
 
     load_config()
-    raw_token = args.token or get_env("GITHUB_TOKEN")
-    token = raw_token.strip() if raw_token and raw_token.strip() else None
+    cli_token = args.token.strip() if args.token and args.token.strip() else None
+    env_token = get_env("GITHUB_TOKEN").strip() or None
+    token = cli_token or env_token
     if token:
-        log.info("Authenticating with %s.", "--token" if args.token else "GITHUB_TOKEN")
+        log.info("Authenticating with %s.", "--token" if cli_token else "GITHUB_TOKEN")
     else:
         log.warning("No token supplied; unauthenticated requests are limited to 60/hour.")
     issues = fetch_issues(args.owner, args.repo, token, state=args.state)
