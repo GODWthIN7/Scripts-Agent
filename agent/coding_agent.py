@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import logging
 import os
 import subprocess
 import sys
@@ -36,24 +35,21 @@ try:
 except ImportError:  # pragma: no cover
     _OPENAI_AVAILABLE = False
 
+from scripts.common.file_ops import safe_read, safe_write
 from scripts.common.logger import get_logger
-from scripts.common.file_ops import safe_write, safe_read
+from scripts.common.paths import (
+    CATEGORIES,
+    REPO_ROOT,
+    SCRIPTS_ROOT,
+    assert_in_scripts,
+    resolve_path,
+)
 
 log = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-SCRIPTS_ROOT = REPO_ROOT / "scripts"
-
-CATEGORIES = {
-    "system_automation": SCRIPTS_ROOT / "system_automation",
-    "data_processing": SCRIPTS_ROOT / "data_processing",
-    "web_api": SCRIPTS_ROOT / "web_api",
-    "utilities": SCRIPTS_ROOT / "utilities",
-}
 
 SCRIPT_TEMPLATE = '''\
 """
@@ -63,9 +59,13 @@ SCRIPT_TEMPLATE = '''\
 from __future__ import annotations
 
 import argparse
-import logging
 import sys
+from pathlib import Path
 
+# Ensure the repository root is on sys.path when this script is run directly.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from scripts.common.cli import build_parser, log_start, run
 from scripts.common.logger import get_logger
 
 log = get_logger(__name__)
@@ -73,7 +73,7 @@ log = get_logger(__name__)
 
 def main(args: argparse.Namespace) -> int:
     """Entry point for {name}."""
-    log.info("Starting %s (dry_run=%s)", __file__, args.dry_run)
+    log_start("{name}", dry_run=args.dry_run)
 
     # TODO: implement task logic here
 
@@ -82,18 +82,12 @@ def main(args: argparse.Namespace) -> int:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="{description}")
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        default=False,
-        help="Show what would be done without making changes.",
-    )
+    parser = build_parser("{description}")
     return parser.parse_args(argv)
 
 
 if __name__ == "__main__":
-    sys.exit(main(parse_args()))
+    run(main, parse_args)
 '''
 
 SYSTEM_PROMPT = """\
@@ -116,7 +110,10 @@ Your job:
 Script rules:
 - Always include main(), argparse with --dry-run, logging, and a top-of-file docstring.
 - Use tqdm for any loop/batch operation with a sensible desc= and unit=.
-- Import shared helpers from scripts.common (logger, file_ops, config) when relevant.
+- Import shared helpers from scripts.common (cli, logger, file_ops, csv_ops, config,
+  paths) when relevant: build the parser with cli.build_parser(description) so the
+  standard --dry-run flag is added, log the start banner with cli.log_start(name,
+  **params), and wire the entrypoint with cli.run(main, parse_args).
 - Never import or use secrets directly — read from env vars.
 - All file writes go through scripts.common.file_ops.safe_write unless there is a
   compelling reason (document it).
@@ -137,15 +134,12 @@ def tool_list_files(directory: str | Path = SCRIPTS_ROOT) -> list[str]:
 
 def tool_read_file(path: str | Path) -> str:
     """Return the text content of *path* (resolved relative to REPO_ROOT if needed)."""
-    resolved = _resolve_path(path)
-    return safe_read(resolved)
+    return safe_read(resolve_path(path))
 
 
 def tool_write_file(path: str | Path, content: str, *, dry_run: bool = True) -> str:
     """Write *content* to *path* and return a status message."""
-    resolved = _resolve_path(path)
-    _assert_in_scripts(resolved)
-    return safe_write(resolved, content, dry_run=dry_run)
+    return safe_write(assert_in_scripts(path), content, dry_run=dry_run)
 
 
 def tool_run_command(cmd: list[str], *, cwd: str | Path = REPO_ROOT) -> str:
@@ -167,24 +161,6 @@ def tool_run_command(cmd: list[str], *, cwd: str | Path = REPO_ROOT) -> str:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-def _resolve_path(path: str | Path) -> Path:
-    p = Path(path)
-    if not p.is_absolute():
-        p = REPO_ROOT / p
-    return p.resolve()
-
-
-def _assert_in_scripts(path: Path) -> None:
-    """Raise ValueError if *path* is outside the /scripts directory."""
-    try:
-        path.relative_to(SCRIPTS_ROOT.resolve())
-    except ValueError:
-        raise ValueError(
-            f"Safety violation: attempted write to '{path}' which is outside "
-            f"the allowed /scripts directory."
-        )
-
 
 def _call_llm(messages: list[dict[str, str]], model: str = "gpt-4o-mini") -> str:
     """Call the OpenAI chat API and return the assistant message content."""

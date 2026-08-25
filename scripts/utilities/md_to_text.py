@@ -14,14 +14,13 @@ import sys
 from pathlib import Path
 
 # Ensure the repository root is on sys.path when this script is run directly.
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from tqdm import tqdm
 
-from scripts.common.logger import get_logger
+from scripts.common.cli import build_parser, log_start, run
 from scripts.common.file_ops import safe_write
+from scripts.common.logger import get_logger
 
 log = get_logger(__name__)
 
@@ -66,7 +65,7 @@ def convert_files(
 
 
 def main(args: argparse.Namespace) -> int:
-    log.info("md_to_text starting (dry_run=%s)", args.dry_run)
+    log_start("md_to_text", dry_run=args.dry_run)
 
     input_paths = list(Path(args.input_dir).rglob("*.md"))
     if not input_paths:
@@ -81,19 +80,11 @@ def main(args: argparse.Namespace) -> int:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Convert Markdown files to plain text."
-    )
+    parser = build_parser("Convert Markdown files to plain text.")
     parser.add_argument("--input-dir", default=".", help="Directory to scan for .md files.")
     parser.add_argument("--output-dir", default="./output", help="Destination directory for .txt files.")
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        default=False,
-        help="Show what would be done without writing files.",
-    )
     return parser.parse_args(argv)
 
 
 if __name__ == "__main__":
-    sys.exit(main(parse_args()))
+    run(main, parse_args)
