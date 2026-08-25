@@ -23,7 +23,7 @@ import requests
 from tqdm import tqdm
 
 from scripts.common.logger import get_logger
-from scripts.common.config import get_env
+from scripts.common.config import get_env, load_config
 
 log = get_logger(__name__)
 
@@ -99,7 +99,13 @@ def main(args: argparse.Namespace) -> int:
         args.dry_run,
     )
 
-    token = args.token or get_env("GITHUB_TOKEN") or None
+    load_config()
+    raw_token = args.token or get_env("GITHUB_TOKEN")
+    token = raw_token.strip() if raw_token and raw_token.strip() else None
+    if token:
+        log.info("Authenticating with %s.", "--token" if args.token else "GITHUB_TOKEN")
+    else:
+        log.warning("No token supplied; unauthenticated requests are limited to 60/hour.")
     issues = fetch_issues(args.owner, args.repo, token, state=args.state)
     rows = issues_to_rows(issues)
     output = Path(args.output)
