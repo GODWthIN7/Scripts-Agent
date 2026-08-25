@@ -26,6 +26,28 @@ from scripts.common.file_ops import safe_write
 log = get_logger(__name__)
 
 
+class MergeError(RuntimeError):
+    """Raised when input CSV files cannot be read or merged."""
+
+
+def _map_row(
+    row: dict[str | None, str],
+    mapping: dict[str, str],
+    path: Path,
+) -> dict[str, str]:
+    """Rename *row* keys via *mapping*, logging any column not in the header."""
+    mapped: dict[str, str] = {}
+    for key, value in row.items():
+        if key in mapping:
+            mapped[mapping[key]] = value
+        else:
+            # csv.DictReader stores surplus fields under a ``None`` key.
+            log.warning(
+                "Dropping unexpected column %r in '%s' (not in header).", key, path
+            )
+    return mapped
+
+
 def normalize_header(header: list[str]) -> list[str]:
     """Return a normalized version of *header* (lowercase, underscores, stripped)."""
     return [col.strip().lower().replace(" ", "_").replace("-", "_") for col in header]
@@ -37,18 +59,21 @@ def merge_csvs(input_paths: list[Path]) -> tuple[list[str], list[dict[str, str]]
     all_headers: list[str] = []
 
     for path in tqdm(input_paths, desc="Reading CSVs", unit="file"):
-        with path.open(encoding="utf-8", newline="") as fh:
-            reader = csv.DictReader(fh)
-            if reader.fieldnames is None:
-                log.warning("Skipping '%s': no headers found.", path)
-                continue
-            norm = normalize_header(list(reader.fieldnames))
-            mapping = dict(zip(reader.fieldnames, norm))
-            for row in reader:
-                all_rows.append({mapping[k]: v for k, v in row.items()})
-            for h in norm:
-                if h not in all_headers:
-                    all_headers.append(h)
+        try:
+            with path.open(encoding="utf-8", newline="") as fh:
+                reader = csv.DictReader(fh)
+                if reader.fieldnames is None:
+                    log.warning("Skipping '%s': no headers found.", path)
+                    continue
+                norm = normalize_header(list(reader.fieldnames))
+                mapping = dict(zip(reader.fieldnames, norm))
+                for row in reader:
+                    all_rows.append(_map_row(row, mapping, path))
+                for h in norm:
+                    if h not in all_headers:
+                        all_headers.append(h)
+        except (OSError, UnicodeDecodeError, csv.Error) as exc:
+            raise MergeError(f"Failed to read '{path}': {exc}") from exc
 
     return all_headers, all_rows
 
@@ -56,8 +81,8 @@ def merge_csvs(input_paths: list[Path]) -> tuple[list[str], list[dict[str, str]]
 def build_summary(headers: list[str], rows: list[dict[str, str]]) -> str:
     """Return a plain-text summary report."""
     lines = [
-        f"Summary Report",
-        f"==============",
+        "Summary Report",
+        "==============",
         f"Total rows   : {len(rows)}",
         f"Columns ({len(headers)}): {', '.join(headers)}",
     ]
@@ -73,7 +98,11 @@ def main(args: argparse.Namespace) -> int:
         log.error("Files not found: %s", missing)
         return 1
 
-    headers, rows = merge_csvs(input_paths)
+    try:
+        headers, rows = merge_csvs(input_paths)
+    except MergeError as exc:
+        log.error("%s", exc)
+        return 1
     log.info("Merged %d row(s) across %d file(s).", len(rows), len(input_paths))
 
     # Write merged CSV
@@ -81,17 +110,25 @@ def main(args: argparse.Namespace) -> int:
     if args.dry_run:
         log.info("[dry-run] Would write merged CSV to '%s'.", output_path)
     else:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with output_path.open("w", encoding="utf-8", newline="") as fh:
-            writer = csv.DictWriter(fh, fieldnames=headers, extrasaction="ignore")
-            writer.writeheader()
-            writer.writerows(rows)
+        try:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            with output_path.open("w", encoding="utf-8", newline="") as fh:
+                writer = csv.DictWriter(fh, fieldnames=headers, extrasaction="ignore")
+                writer.writeheader()
+                writer.writerows(rows)
+        except (OSError, csv.Error) as exc:
+            log.error("Failed to write merged CSV to '%s': %s", output_path, exc)
+            return 1
         log.info("Merged CSV written to '%s'.", output_path)
 
     # Write summary report
     summary = build_summary(headers, rows)
     report_path = output_path.with_suffix(".txt")
-    safe_write(report_path, summary, dry_run=args.dry_run)
+    try:
+        safe_write(report_path, summary, dry_run=args.dry_run)
+    except OSError as exc:
+        log.error("Failed to write summary report to '%s': %s", report_path, exc)
+        return 1
 
     return 0
 

@@ -42,7 +42,10 @@ def get_logger(name: str, level: int | None = None) -> logging.Logger:
 
 def _configure_root_logger() -> None:
     env_level = os.environ.get("LOG_LEVEL", "INFO").upper()
-    numeric = getattr(logging, env_level, logging.INFO)
+    numeric = logging.getLevelName(env_level)
+    invalid_level = not isinstance(numeric, int)
+    if invalid_level:
+        numeric = logging.INFO
 
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(logging.Formatter(_LOG_FORMAT, datefmt=_DATE_FORMAT))
@@ -51,3 +54,8 @@ def _configure_root_logger() -> None:
     root.setLevel(numeric)
     if not root.handlers:
         root.addHandler(handler)
+
+    if invalid_level:
+        root.warning(
+            "Invalid LOG_LEVEL '%s'; falling back to INFO.", env_level
+        )

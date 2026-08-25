@@ -53,16 +53,26 @@ def convert_files(
     output_dir: Path,
     *,
     dry_run: bool,
-) -> int:
-    """Convert *input_paths* to plain text in *output_dir*."""
+) -> tuple[int, list[Path]]:
+    """Convert *input_paths* to plain text in *output_dir*.
+
+    Returns the number of files converted and the list of files that failed.
+    Individual failures are logged and do not abort the batch.
+    """
     converted = 0
+    failed: list[Path] = []
     for src in tqdm(input_paths, desc="Converting", unit="file"):
         dest = output_dir / src.with_suffix(".txt").name
-        md = src.read_text(encoding="utf-8")
-        plain = md_to_text(md)
-        safe_write(dest, plain, dry_run=dry_run)
+        try:
+            md = src.read_text(encoding="utf-8")
+            plain = md_to_text(md)
+            safe_write(dest, plain, dry_run=dry_run)
+        except (OSError, UnicodeDecodeError) as exc:
+            log.error("Failed to convert '%s': %s", src, exc)
+            failed.append(src)
+            continue
         converted += 1
-    return converted
+    return converted, failed
 
 
 def main(args: argparse.Namespace) -> int:
@@ -75,8 +85,11 @@ def main(args: argparse.Namespace) -> int:
 
     log.info("Found %d Markdown file(s).", len(input_paths))
     output_dir = Path(args.output_dir)
-    count = convert_files(input_paths, output_dir, dry_run=args.dry_run)
+    count, failed = convert_files(input_paths, output_dir, dry_run=args.dry_run)
     log.info("Converted %d file(s).", count)
+    if failed:
+        log.error("%d file(s) could not be converted.", len(failed))
+        return 1
     return 0
 
 

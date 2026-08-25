@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 import sys
 import time
 from pathlib import Path
@@ -23,7 +24,6 @@ import requests
 from tqdm import tqdm
 
 from scripts.common.logger import get_logger
-from scripts.common.config import require_env
 
 log = get_logger(__name__)
 
@@ -53,10 +53,20 @@ def fetch_issues(
 
     with tqdm(desc="Fetching issues", unit="page") as bar:
         while True:
-            resp = requests.get(url, headers=_headers(token), params=params, timeout=30)
-            _handle_rate_limit(resp)
+            resp = _get_with_rate_limit_retry(url, token, params)
             resp.raise_for_status()
-            page = resp.json()
+            try:
+                page = resp.json()
+            except ValueError as exc:
+                raise requests.exceptions.InvalidJSONError(
+                    f"GitHub returned a non-JSON response for page "
+                    f"{params['page']}: {resp.text[:200]!r}"
+                ) from exc
+            if not isinstance(page, list):
+                raise requests.exceptions.InvalidJSONError(
+                    f"Expected a JSON array of issues, got {type(page).__name__}: "
+                    f"{page!r:.200}"
+                )
             if not page:
                 break
             all_issues.extend(page)
@@ -67,13 +77,49 @@ def fetch_issues(
     return all_issues
 
 
-def _handle_rate_limit(resp: requests.Response) -> None:
-    remaining = int(resp.headers.get("X-RateLimit-Remaining", 1))
-    if remaining == 0:
-        reset = int(resp.headers.get("X-RateLimit-Reset", time.time() + 60))
-        wait = max(0, reset - int(time.time())) + 1
-        log.warning("Rate limit hit; sleeping %ds.", wait)
+def _get_with_rate_limit_retry(
+    url: str,
+    token: str | None,
+    params: dict,
+    *,
+    max_retries: int = 3,
+) -> requests.Response:
+    """GET *url*, waiting out rate limits and retrying up to *max_retries* times."""
+    for attempt in range(1, max_retries + 1):
+        resp = requests.get(url, headers=_headers(token), params=params, timeout=30)
+        wait = _rate_limit_wait(resp)
+        if wait is None or attempt == max_retries:
+            return resp
+        log.warning(
+            "Rate limit hit on page %s; sleeping %ds (attempt %d/%d).",
+            params.get("page"),
+            wait,
+            attempt,
+            max_retries,
+        )
         time.sleep(wait)
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+def _rate_limit_wait(resp: requests.Response) -> int | None:
+    """Return seconds to wait if *resp* was rate limited, else ``None``."""
+    remaining = _header_int(resp, "X-RateLimit-Remaining", 1)
+    if remaining != 0:
+        return None
+    reset = _header_int(resp, "X-RateLimit-Reset", int(time.time()) + 60)
+    return max(0, reset - int(time.time())) + 1
+
+
+def _header_int(resp: requests.Response, name: str, default: int) -> int:
+    """Return header *name* as an int, falling back to *default* when malformed."""
+    raw = resp.headers.get(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        log.warning("Ignoring malformed %s header: %r", name, raw)
+        return default
 
 
 def issues_to_rows(issues: list[dict]) -> list[dict[str, str]]:
@@ -99,8 +145,13 @@ def main(args: argparse.Namespace) -> int:
         args.dry_run,
     )
 
-    token = args.token
-    issues = fetch_issues(args.owner, args.repo, token, state=args.state)
+    token = args.token or os.environ.get("GITHUB_TOKEN")
+    try:
+        issues = fetch_issues(args.owner, args.repo, token, state=args.state)
+    except requests.RequestException as exc:
+        log.error("Failed to fetch issues for %s/%s: %s", args.owner, args.repo, exc)
+        return 1
+
     rows = issues_to_rows(issues)
     output = Path(args.output)
 
@@ -108,11 +159,15 @@ def main(args: argparse.Namespace) -> int:
         log.info("[dry-run] Would write %d row(s) to '%s'.", len(rows), output)
         return 0
 
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with output.open("w", encoding="utf-8", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=ISSUES_FIELDS)
-        writer.writeheader()
-        writer.writerows(rows)
+    try:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with output.open("w", encoding="utf-8", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=ISSUES_FIELDS)
+            writer.writeheader()
+            writer.writerows(rows)
+    except (OSError, csv.Error) as exc:
+        log.error("Failed to write CSV to '%s': %s", output, exc)
+        return 1
     log.info("Wrote %d issue(s) to '%s'.", len(rows), output)
     return 0
 

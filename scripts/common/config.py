@@ -42,16 +42,17 @@ def load_config(dotenv_path: str | None = None) -> dict[str, Any]:
     """
     try:
         from dotenv import load_dotenv  # type: ignore[import-untyped]
+    except ImportError as exc:
+        log.debug("python-dotenv not installed (%s); skipping .env loading.", exc)
+        return dict(os.environ)
 
-        if dotenv_path:
-            load_dotenv(dotenv_path, override=False)
-            log.debug("Loaded .env from '%s'.", dotenv_path)
-        else:
-            loaded = load_dotenv(override=False)
-            if loaded:
-                log.debug("Loaded .env from current directory.")
-    except ImportError:
-        log.debug("python-dotenv not installed; skipping .env loading.")
+    if dotenv_path:
+        load_dotenv(dotenv_path, override=False)
+        log.debug("Loaded .env from '%s'.", dotenv_path)
+    else:
+        loaded = load_dotenv(override=False)
+        if loaded:
+            log.debug("Loaded .env from current directory.")
 
     return dict(os.environ)
 
