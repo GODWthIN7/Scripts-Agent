@@ -13,9 +13,13 @@ jobs:
       contents: read
     steps:
     - name: 'Auto-assign issue'
+      if: |
+        !contains(github.event.issue.labels.*.name, 'wontfix') &&
+        !contains(github.event.pull_request.labels.*.name, 'wontfix') &&
+        !contains(github.event.issue.title, 'wontfix') &&
+        !contains(github.event.pull_request.title, 'wontfix')
       uses: pozil/auto-assign-issue@e0a56afd8846954587b00fff254caf1ec918554e # v1
       with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           assignees: GODWthIN7
           numOfAssignee: 1
-          skipKeywords: '|wontfix|'
